@@ -6,7 +6,6 @@ from typing import Tuple, List
 
 TRADING_DAYS = 252
 
-
 #  --------------------------------- 1) Multi-Asset Data Loading ---------------------------------------
 
 # single-asset models represented as vector, portfolios represented as matrix P ∈ ℝ^(T × N)
@@ -64,6 +63,7 @@ def estimate_gbm_params(
 
     return mu_annual, cov_annual, log_rets
 
+
 #  ----------------- 3) Diagnostic: Visualize Log-Returns  ---------------------------------------
 def plot_log_returns(log_rets: pd.DataFrame):
     log_rets.plot(subplots=True, figsize=(10, 6), title="Log Returns")
@@ -114,65 +114,59 @@ def monte_carlo_paths(
     return np.exp(log_paths)
 
 
-# 4) Plotting utilities
-def plot_price_paths(price_paths: np.ndarray,
-                     ticker: str,
-                     out_file: str = "price_paths.png",
-                     n_sample_paths: int = 100) -> None:
-    """
-    Plot a subset of simulated price paths.
-    """
-    days_plus_one, sims = price_paths.shape
+#  ----------------- 5) Plotting utilities  ---------------------------------------
+def plot_portfolio_paths(
+    portfolio_paths: np.ndarray,
+    out_file: str = "portfolio_paths.png",
+    n_sample_paths: int = 100
+):
+    days_plus_one, sims = portfolio_paths.shape
     n = min(n_sample_paths, sims)
-    time_axis = np.arange(days_plus_one)
 
     plt.figure(figsize=(8, 5))
-    plt.plot(time_axis, price_paths[:, :n], linewidth=0.8, alpha=0.7)
+    plt.plot(portfolio_paths[:, :n], alpha=0.7, linewidth=0.8)
     plt.xlabel("Days into future")
-    plt.ylabel("Price")
-    plt.title(f"{ticker} – Monte Carlo Simulated Price Paths")
+    plt.ylabel("Portfolio value")
+    plt.title("Monte Carlo Portfolio Simulation")
     plt.tight_layout()
     plt.savefig(out_file, dpi=150)
     plt.close()
 
 
-def plot_final_distribution(price_paths: np.ndarray,
-                            ticker: str,
-                            out_file: str = "final_price_distribution.png") -> None:
-    """
-    Plot histogram of final simulated prices.
-    """
-    final_prices = price_paths[-1, :]
+def plot_final_distribution(
+    portfolio_paths: np.ndarray,
+    out_file: str = "portfolio_final_distribution.png"
+):
+    final_vals = portfolio_paths[-1]
 
     plt.figure(figsize=(8, 5))
-    plt.hist(final_prices, bins=60)
-    plt.xlabel("Final simulated price")
+    plt.hist(final_vals, bins=60)
+    plt.xlabel("Final portfolio value")
     plt.ylabel("Frequency")
-    plt.title(f"{ticker} – Distribution of Price after Simulation Horizon")
+    plt.title("Distribution of Portfolio Value at Horizon")
     plt.tight_layout()
     plt.savefig(out_file, dpi=150)
     plt.close()
 
 
-# 5) Simple summary statistics
-def summarise_simulation(price_paths: np.ndarray) -> dict:
+#  ----------------- 6) Detailed Summary statistics  ---------------------------------------
+
+def summarise_simulation(portfolio_paths: np.ndarray) -> dict:
     """
     Compute summary stats from simulated final prices.
     """
-    final_prices = price_paths[-1, :]
-
-    stats = {
-        "mean_final": float(final_prices.mean()),
-        "median_final": float(np.median(final_prices)),
-        "p5": float(np.percentile(final_prices, 5)),
-        "p95": float(np.percentile(final_prices, 95)),
-        "min": float(final_prices.min()),
-        "max": float(final_prices.max())
+    final_vals = portfolio_paths[-1]
+    return {
+        "mean_final": float(final_vals.mean()),
+        "median_final": float(np.median(final_vals)),
+        "p5": float(np.percentile(final_vals, 5)),
+        "p95": float(np.percentile(final_vals, 95)),
+        "min": float(final_vals.min()),
+        "max": float(final_vals.max())
     }
-    return stats
 
 
-# 6) Main driver
+#  ----------------- 6) Main Driver  ---------------------------------------
 def main():
     # --- user input (interactive, but has defaults) ---
     ticker = input("Enter ticker [default AAPL]: ").strip().upper() or "AAPL"
