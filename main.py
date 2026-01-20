@@ -64,8 +64,14 @@ def estimate_gbm_params(
 
     return mu_annual, cov_annual, log_rets
 
+#  ----------------- 3) Diagnostic: Visualize Log-Returns  ---------------------------------------
+def plot_log_returns(log_rets: pd.DataFrame):
+    log_rets.plot(subplots=True, figsize=(10, 6), title="Log Returns")
+    plt.tight_layout()
+    plt.show()
 
-# 3) Monte Carlo simulation of future price paths (GBM)
+
+# 3) Monte Carlo simulation of future price paths (GBM)  ---------------------------------------
 def monte_carlo_paths(S0: float,
                       mu: float,
                       sigma: float,
