@@ -182,7 +182,28 @@ def summarise_simulation(portfolio_paths: np.ndarray) -> dict:
     }
 
 
-#  ----------------- 8) Main Driver  ---------------------------------------
+#  ----------------- 8) Portfolio Optimisation Strategies  ---------------------------------------
+
+def min_variance_weights(cov: np.ndarray) -> np.ndarray:
+    inv_cov = np.linalg.inv(cov)
+    w = inv_cov @ np.ones(len(cov))
+    return w / w.sum()
+
+
+def max_sharpe_weights(mu: np.ndarray, cov: np.ndarray) -> np.ndarray:
+    inv_cov = np.linalg.inv(cov)
+    w = inv_cov @ mu
+    return w / w.sum()
+
+
+def risk_parity_weights(cov: np.ndarray) -> np.ndarray:
+    vol = np.sqrt(np.diag(cov))
+    inv_vol = 1 / vol
+    return inv_vol / inv_vol.sum()
+
+
+#  ----------------- 9) Main Driver  ---------------------------------------
+
 def main():
 
     """
