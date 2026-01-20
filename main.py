@@ -7,33 +7,42 @@ from typing import Tuple
 TRADING_DAYS = 252
 
 
-# 1) Data loading
-def get_price_history(ticker: str,
-                      start: str = "2020-01-01",
-                      end: str = "2025-01-01") -> pd.Series:
+#  ---------------------------------  1) Multi-Asset Data loading---------------------------------------
+
+# single-asset models represented as vector, portfolios represented as matrix P ∈ ℝ^(T × N)
+def get_price_matrix(
+    tickers: List[str],
+    start: str = "2020-01-01",
+    end: str = "2025-01-01"
+) -> pd.DataFrame:
+
     """
-    Download adjusted close prices for a single ticker.
-    Returns a Series indexed by date.
+    Download adjusted close prices for a multiple tickers.
+    Returns a DataFrame indexed by date with one column per asset.
     """
-    data = yf.download(ticker,
-                       start=start,
-                       end=end,
-                       auto_adjust=True,
-                       progress=False)
+    data = yf.download(
+        tickers,
+        start=start,
+        end=end,
+        auto_adjust=True,  # Adjusts for splits & dividends
+        progress=False
+    )["Close"]
 
-    if "Close" not in data.columns:
-        raise ValueError(f"No 'Close' column found for {ticker}.")
+    if isinstance(data, pd.Series):
+        raise ValueError("Provide at least two tickers for a portfolio.")
 
-    prices = data["Close"].dropna()
+        # Drop rows where all assets are missing
+        data = data.dropna(how="all")
 
-    if prices.empty:
-        raise ValueError(f"No price data returned for {ticker} "
-                         f"between {start} and {end}.")
+    if data.empty:
+        raise ValueError("No price data returned.")
 
-    return prices
+    # At this point:
+    #   type(data) == pd.DataFrame
+    #   data.shape == (T, N)
+    return data
 
 
-# 2) Estimate GBM parameters from historical log-returns
 # 2) Estimate GBM parameters from historical log-returns
 def estimate_gbm_params(prices: pd.Series) -> Tuple[float, float, pd.Series]:
     """
