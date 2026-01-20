@@ -72,7 +72,7 @@ def plot_log_returns(log_rets: pd.DataFrame):
 
 
 #  ----------------- 4) Correlated Monte Carlo GBM simulation  ---------------------------------------
-def monte_carlo_paths(
+def monte_carlo_multivariate_paths(
     S0: np.ndarray,
     mu: np.ndarray,
     cov: np.ndarray,
@@ -113,8 +113,24 @@ def monte_carlo_paths(
 
     return np.exp(log_paths)
 
+#  ----------------- 5) Portfolio Path Configuration  ---------------------------------------
 
-#  ----------------- 5) Plotting utilities  ---------------------------------------
+def portfolio_paths(
+    asset_paths: np.ndarray,
+    weights: np.ndarray
+) -> np.ndarray:
+    """
+    Convert asset-level paths into portfolio value paths.
+
+    asset_paths: (days+1, sims, n_assets)
+    weights:     (n_assets,)
+
+    returns:     (days+1, sims)
+    """
+    return asset_paths @ weights
+
+
+#  ----------------- 6) Plotting utilities  ---------------------------------------
 def plot_portfolio_paths(
     portfolio_paths: np.ndarray,
     out_file: str = "portfolio_paths.png",
@@ -149,7 +165,7 @@ def plot_final_distribution(
     plt.close()
 
 
-#  ----------------- 6) Detailed Summary statistics  ---------------------------------------
+#  ----------------- 7) Detailed Summary statistics  ---------------------------------------
 
 def summarise_simulation(portfolio_paths: np.ndarray) -> dict:
     """
@@ -166,8 +182,19 @@ def summarise_simulation(portfolio_paths: np.ndarray) -> dict:
     }
 
 
-#  ----------------- 7) Main Driver  ---------------------------------------
+#  ----------------- 8) Main Driver  ---------------------------------------
 def main():
+
+    """
+        PIPELINE OVERVIEW:
+        ------------------
+        1. Load aligned price matrix (P ∈ ℝ^(T×N))
+        2. Compute log-return matrix (R ∈ ℝ^(T-1×N))
+        3. Estimate μ and Σ
+        4. (Next step) Feed μ, Σ into correlated Monte Carlo
+        """
+
+    # Asset Universe
     tickers = ["AAPL", "MSFT", "GOOG", "SPY"]
     start = "2020-01-01"
     end = "2025-01-01"
@@ -180,6 +207,7 @@ def main():
     S0 = prices.iloc[-1].values
     print("Initial prices:", dict(zip(tickers, S0.round(2))))
 
+    #  Parameter Estimation
     mu, cov, log_rets = estimate_gbm_params(prices)
 
     print("\nAnnualised expected returns:")
@@ -187,7 +215,7 @@ def main():
         print(f"{t}: {m:.2%}")
 
     print("\nSimulating correlated GBM paths...")
-    asset_paths = monte_carlo_paths_multivariate(
+    asset_paths = monte_carlo_multivariate_paths(
         S0, mu, cov, days=days, sims=sims
     )
 
@@ -214,6 +242,9 @@ def main():
     print("\nSaved plots:")
     print("- portfolio_paths.png")
     print("- portfolio_final_distribution.png")
+
+    # OPTIONAL DIAGNOSTIC
+    # plot_log_returns(log_rets)
 
 
 if __name__ == "__main__":
