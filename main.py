@@ -2,12 +2,12 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 import matplotlib.pyplot as plt
-from typing import Tuple
+from typing import Tuple, List
 
 TRADING_DAYS = 252
 
 
-#  ---------------------------------  1) Multi-Asset Data loading---------------------------------------
+#  --------------------------------- 1) Multi-Asset Data Loading ---------------------------------------
 
 # single-asset models represented as vector, portfolios represented as matrix P ∈ ℝ^(T × N)
 def get_price_matrix(
@@ -43,24 +43,26 @@ def get_price_matrix(
     return data
 
 
-# 2) Estimate GBM parameters from historical log-returns
-def estimate_gbm_params(prices: pd.Series) -> Tuple[float, float, pd.Series]:
+#  ----------------- 2) Estimate Multi-Variate GBM parameters from historical log-returns ---------------------------------------
+def estimate_gbm_params(
+        prices: pd.DataFrame
+) -> Tuple[np.ndarray, np.ndarray, pd.DataFrame]:
+
     """
     Estimate annualised drift (mu) and volatility (sigma)
     from historical log-returns.
     """
-    # log returns
-    log_rets = np.log(prices / prices.shift(1)).dropna()
+    # Compute log returns (element-wise) -> implements r_t,i = ln(P_t,i / P_{t-1,i}) -> Vectorised across all assets.
+    log_rets = np.log(prices / prices.shift(1))
 
-    # daily stats
-    mu_daily = log_rets.mean()
-    sigma_daily = log_rets.std()
+    # Removes any row where at least one asset is missing.
+    log_rets = log_rets.dropna(axis=0)
 
-    # annualise (convert to floats)
-    mu_annual = float(mu_daily * TRADING_DAYS)
-    sigma_annual = float(sigma_daily * np.sqrt(TRADING_DAYS))
+    # Estimate parameters w/t Daily → annual via: μ_annual  = 252 × mean_daily & Σ_annual  = 252 × cov_daily
+    mu_annual = log_rets.mean().values * TRADING_DAYS
+    cov_annual = log_rets.cov().values * TRADING_DAYS
 
-    return mu_annual, sigma_annual, log_rets
+    return mu_annual, cov_annual, log_rets
 
 
 # 3) Monte Carlo simulation of future price paths (GBM)
