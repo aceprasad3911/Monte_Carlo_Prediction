@@ -71,40 +71,47 @@ def plot_log_returns(log_rets: pd.DataFrame):
     plt.show()
 
 
-# 3) Monte Carlo simulation of future price paths (GBM)  ---------------------------------------
-def monte_carlo_paths(S0: float,
-                      mu: float,
-                      sigma: float,
-                      days: int = 252,
-                      sims: int = 10_000,
-                      seed: int = 42) -> np.ndarray:
+#  ----------------- 4) Correlated Monte Carlo GBM simulation  ---------------------------------------
+def monte_carlo_paths(
+    S0: np.ndarray,
+    mu: np.ndarray,
+    cov: np.ndarray,
+    days: int = 252,
+    sims: int = 10_000,
+    seed: int = 42) -> np.ndarray:
     """
-    Simulate GBM price paths.
+    Simulate correlated GBM paths for multiple assets.
 
-    Returns an array of shape (days+1, sims)
-    where row 0 is the starting price S0.
+    Returns array of shape:
+    (days + 1, sims, n_assets)
     """
     np.random.seed(seed)
+
+    n_assets = len(S0)
     dt = 1 / TRADING_DAYS
 
+    # Cholesky decomposition
+    L = np.linalg.cholesky(cov)
+
     # random shocks
-    Z = np.random.normal(0.0, 1.0, size=(days, sims))
+    Z = np.random.normal(size=(days, sims, n_assets))
+    correlated_Z = Z @ L.T
 
-    # GBM log-return increments
-    drift = (mu - 0.5 * sigma ** 2) * dt
-    diffusion = sigma * np.sqrt(dt) * Z
-    log_increments = drift + diffusion
+    # Drift term
+    drift = (mu - 0.5 * np.diag(cov)) * dt
 
-    # cumulative sum in log space
-    log_S0 = np.log(S0)
-    log_paths = np.vstack([
-        np.full(shape=(1, sims), fill_value=log_S0),
-        log_S0 + np.cumsum(log_increments, axis=0)
-    ])
+    # Log-price evolution
+    log_paths = np.zeros((days + 1, sims, n_assets))
+    log_paths[0] = np.log(S0)
 
-    # back to price space
-    price_paths = np.exp(log_paths)
-    return price_paths
+    for t in range(1, days + 1):
+        log_paths[t] = (
+                log_paths[t - 1]
+                + drift
+                + np.sqrt(dt) * correlated_Z[t - 1]
+        )
+
+    return np.exp(log_paths)
 
 
 # 4) Plotting utilities
