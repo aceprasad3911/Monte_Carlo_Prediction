@@ -166,52 +166,54 @@ def summarise_simulation(portfolio_paths: np.ndarray) -> dict:
     }
 
 
-#  ----------------- 6) Main Driver  ---------------------------------------
+#  ----------------- 7) Main Driver  ---------------------------------------
 def main():
-    # --- user input (interactive, but has defaults) ---
-    ticker = input("Enter ticker [default AAPL]: ").strip().upper() or "AAPL"
-    start = input("Start date [default 2020-01-01]: ").strip() or "2020-01-01"
-    end = input("End date   [default 2025-01-01]: ").strip() or "2025-01-01"
+    tickers = ["AAPL", "MSFT", "GOOG", "SPY"]
+    start = "2020-01-01"
+    end = "2025-01-01"
+    days = 252
+    sims = 10_000
 
-    try:
-        days = int(input("Forecast horizon in trading days [default 252]: ").strip() or "252")
-    except ValueError:
-        days = 252
+    print(f"\nDownloading data for {tickers}...")
+    prices = get_price_matrix(tickers, start, end)
 
-    try:
-        sims = int(input("Number of simulations [default 10000]: ").strip() or "10000")
-    except ValueError:
-        sims = 10_000
+    S0 = prices.iloc[-1].values
+    print("Initial prices:", dict(zip(tickers, S0.round(2))))
 
-    print(f"\nDownloading data for {ticker} from {start} to {end}...")
-    prices = get_price_history(ticker, start, end)
-    S0 = float(prices.iloc[-1].item())
-    print(f"Last observed price (S0): {S0:.2f}")
+    mu, cov, log_rets = estimate_gbm_params(prices)
 
-    mu, sigma, log_rets = estimate_gbm_params(prices)
-    print(f"Estimated annual drift (mu):   {mu:.4f}")
-    print(f"Estimated annual volatility σ: {sigma:.4f}")
+    print("\nAnnualised expected returns:")
+    for t, m in zip(tickers, mu):
+        print(f"{t}: {m:.2%}")
 
-    print(f"\nSimulating {sims} paths over {days} trading days...")
-    paths = monte_carlo_paths(S0, mu, sigma, days=days, sims=sims)
+    print("\nSimulating correlated GBM paths...")
+    asset_paths = monte_carlo_paths_multivariate(
+        S0, mu, cov, days=days, sims=sims
+    )
 
-    stats = summarise_simulation(paths)
-    print("\n== Simulation summary ==")
+    # Equal-weight portfolio
+    weights = np.ones(len(tickers)) / len(tickers)
+    portfolio = portfolio_paths(asset_paths, weights)
+
+    stats = summarise_simulation(portfolio)
+
+    print("\n== Portfolio simulation summary ==")
     for k, v in stats.items():
         print(f"{k:12s}: {v:.2f}")
 
-    # simple risk-style stats
-    final_prices = paths[-1, :]
-    prob_up = (final_prices > S0).mean()
-    prob_down_20 = (final_prices < 0.8 * S0).mean()
+    # Risk-style metrics
+    prob_loss_10 = (portfolio[-1] < 0.9 * portfolio[0]).mean()
+    prob_gain_10 = (portfolio[-1] > 1.1 * portfolio[0]).mean()
 
-    print(f"\nProbability final price > current price: {prob_up:.1%}")
-    print(f"Probability final price < 80% of current: {prob_down_20:.1%}")
+    print(f"\nProbability of >10% loss: {prob_loss_10:.1%}")
+    print(f"Probability of >10% gain: {prob_gain_10:.1%}")
 
-    # plots
-    plot_price_paths(paths, ticker)
-    plot_final_distribution(paths, ticker)
-    print("\nSaved plots: 'price_paths.png', 'final_price_distribution.png'")
+    plot_portfolio_paths(portfolio)
+    plot_final_distribution(portfolio)
+
+    print("\nSaved plots:")
+    print("- portfolio_paths.png")
+    print("- portfolio_final_distribution.png")
 
 
 if __name__ == "__main__":
