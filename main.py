@@ -2,9 +2,10 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 import matplotlib.pyplot as plt
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Callable
 
 TRADING_DAYS = 252
+DT = 1 / TRADING_DAYS
 
 
 #  --------------------------------- 1) Multi-Asset Data Loading ---------------------------------------
@@ -91,7 +92,7 @@ def monte_carlo_multivariate_paths(
     np.random.seed(seed)
 
     n_assets = len(S0)
-    dt = 1 / TRADING_DAYS
+    dt = DT
 
     # Cholesky decomposition
     L = np.linalg.cholesky(cov)
@@ -142,7 +143,7 @@ def equal_weight(n_assets: int) -> np.ndarray:
 
 def min_variance_weights(cov: np.ndarray) -> np.ndarray:
     inv_cov = np.linalg.inv(cov)
-    w = inv_cov @ np.ones(len(cov)) # One asset dominates → huge leverage → terrible drawdowns due to unconstrained optimisation.
+    w = inv_cov @ np.ones(len(cov))  # One asset dominates → huge leverage → terrible drawdowns due to unconstrained optimisation.
     return w / w.sum()
 
 
@@ -181,6 +182,135 @@ def max_drawdown_paths(paths: np.ndarray) -> float:
         dd = (p - peak) / peak
         drawdowns.append(dd.min())
     return float(np.mean(drawdowns))
+
+
+#  ----------------- 8) Simulation Summary  ---------------------------------------
+
+def summarise(paths: np.ndarray) -> Dict[str, float]:
+    final_vals = paths[-1]
+    returns = final_vals / paths[0] - 1
+
+    var, cvar = var_cvar(returns)
+    mdd = max_drawdown_paths(paths)
+
+    return {
+        "mean_final": float(final_vals.mean()),
+        "median_final": float(np.median(final_vals)),
+        "VaR_5%": float(var),
+        "CVaR_5%": float(cvar),
+        "max_drawdown": float(mdd)
+    }
+
+
+#  ----------------- 9) Rolling Backtest  ---------------------------------------
+
+def rolling_backtest(
+    prices: pd.DataFrame,
+    window: int,
+    horizon: int,
+    n_sims: int,
+    weight_fn: Callable
+) -> pd.DataFrame:
+
+    results = []
+
+    for t in range(window, len(prices) - horizon):
+
+        # -----------------------------
+        # 1. Split data
+        # -----------------------------
+        train_prices = prices.iloc[t-window:t]
+        test_prices = prices.iloc[t:t+horizon+1]
+
+        train_rets = np.log(train_prices / train_prices.shift(1)).dropna()
+
+        # -----------------------------
+        # 2. Estimate parameters (daily)
+        # -----------------------------
+        mu = train_rets.mean().values * TRADING_DAYS
+        cov = train_rets.cov().values * TRADING_DAYS
+
+        # -----------------------------
+        # 3. Portfolio construction
+        # -----------------------------
+        weights = weight_fn(mu, cov)
+
+        # -----------------------------
+        # 4. Monte Carlo simulation
+        # -----------------------------
+        paths = monte_carlo_multivariate_paths(
+            S0=train_prices.iloc[-1].values,
+            mu=mu,
+            cov=cov,
+            days=horizon,
+            sims=n_sims
+        )
+
+        portfolio_mc = portfolio_paths(paths, weights)
+
+        # -----------------------------
+        # 5. Realised portfolio path
+        # -----------------------------
+        realised = test_prices.values @ weights
+        realised_return = realised[-1] / realised[0] - 1
+
+        # -----------------------------
+        # 6. Forecast distribution
+        # -----------------------------
+        forecast_returns = portfolio_mc[-1] / portfolio_mc[0] - 1
+        var, cvar = var_cvar(forecast_returns)
+
+        # -----------------------------
+        # 7. Store results
+        # -----------------------------
+        results.append({
+            "date": prices.index[t],
+            "realised_return": realised_return,
+            "forecast_mean": forecast_returns.mean(),
+            "forecast_VaR": var,
+            "forecast_CVaR": cvar,
+            "hit_VaR": realised_return >= var
+        })
+
+    return pd.DataFrame(results)
+
+
+#  ----------------- 9) Main Driver  ---------------------------------------
+
+def main():
+
+    tickers = ["AAPL", "MSFT", "GOOG", "SPY"]
+    start, end = "2020-01-01", "2025-01-01"
+    days, sims = 252, 10_000
+
+    prices = get_price_matrix(tickers, start, end)
+    mu, cov, _ = estimate_gbm_params(prices)
+
+    S0 = prices.iloc[-1].values
+
+    asset_paths = monte_carlo_multivariate_paths(
+        S0, mu, cov, days=days, sims=sims
+    )
+
+    strategies = {
+        "Equal Weight": equal_weight(len(tickers)),
+        "Min Variance": min_variance_weights(cov),
+        "Max Sharpe": max_sharpe_weights(mu, cov),
+        "Risk Parity": risk_parity_weights(cov),
+    }
+
+    for name, w in strategies.items():
+        port_paths = portfolio_paths(asset_paths, w)
+        stats = summarise(port_paths)
+
+        print(f"\n=== {name} ===")
+        for k, v in stats.items():
+            print(f"{k:15s}: {v:.4f}")
+
+
+if __name__ == "__main__":
+    main()
+
 
 
 #  ----------------- 8) Diagnostics & Plots  ---------------------------------------
@@ -253,12 +383,82 @@ def summarise(paths: np.ndarray) -> Dict[str, float]:
         "max_drawdown": float(mdd)
     }
 
+def rolling_backtest(
+    prices: pd.DataFrame,
+    window: int,
+    horizon: int,
+    n_sims: int,
+    weight_fn: Callable
+) -> pd.DataFrame:
+
+    results = []
+
+    for t in range(window, len(prices) - horizon):
+
+        # -----------------------------
+        # 1. Split data
+        # -----------------------------
+        train_prices = prices.iloc[t-window:t]
+        test_prices  = prices.iloc[t:t+horizon+1]
+
+        train_rets = np.log(train_prices / train_prices.shift(1)).dropna()
+        test_rets  = np.log(test_prices / test_prices.shift(1)).dropna()
+
+        # -----------------------------
+        # 2. Estimate parameters
+        # -----------------------------
+        mu  = train_rets.mean().values
+        cov = train_rets.cov().values
+
+        # -----------------------------
+        # 3. Portfolio construction
+        # -----------------------------
+        weights = weight_fn(mu, cov)
+
+        # -----------------------------
+        # 4. Monte Carlo simulation
+        # -----------------------------
+        paths = simulate_gbm(
+            S0=train_prices.iloc[-1].values,
+            mu=mu,
+            cov=cov,
+            T=horizon * DT,
+            steps=horizon,
+            n_sims=n_sims
+        )
+
+        portfolio_paths = aggregate_portfolio(paths, weights)
+
+        # -----------------------------
+        # 5. Realised portfolio path
+        # -----------------------------
+        realised_prices = test_prices.values @ weights
+        realised_returns = realised_prices / realised_prices[0] - 1
+
+        # -----------------------------
+        # 6. Forecast distribution
+        # -----------------------------
+        forecast_final = portfolio_paths[-1]
+        forecast_var, forecast_cvar = var_cvar(
+            forecast_final / portfolio_paths[0] - 1
+        )
+
+        # -----------------------------
+        # 7. Store results
+        # -----------------------------
+        results.append({
+            "date": prices.index[t],
+            "realised_return": realised_returns[-1],
+            "forecast_mean": forecast_final.mean() / portfolio_paths[0, 0] - 1,
+            "forecast_VaR": forecast_var,
+            "forecast_CVaR": forecast_cvar,
+            "hit_VaR": realised_returns[-1] >= forecast_var
+        })
+
+    return pd.DataFrame(results)
+
 
 #  ----------------- 9) Main Driver  ---------------------------------------
-
-# =========================================
-# 7) MAIN DRIVER
-# =========================================
 
 def main():
 
