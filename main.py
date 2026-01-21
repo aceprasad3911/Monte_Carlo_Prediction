@@ -2,9 +2,10 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 import matplotlib.pyplot as plt
-from typing import Tuple, List
+from typing import Tuple, List, Dict
 
 TRADING_DAYS = 252
+
 
 #  --------------------------------- 1) Multi-Asset Data Loading ---------------------------------------
 
@@ -19,6 +20,10 @@ def get_price_matrix(
     Download adjusted close prices for a multiple tickers.
     Returns a DataFrame indexed by date with one column per asset.
     """
+
+    if len(tickers) < 2:
+        raise ValueError("Provide at least two tickers.")
+
     data = yf.download(
         tickers,
         start=start,
@@ -52,10 +57,7 @@ def estimate_gbm_params(
     from historical log-returns.
     """
     # Compute log returns (element-wise) -> implements r_t,i = ln(P_t,i / P_{t-1,i}) -> Vectorised across all assets.
-    log_rets = np.log(prices / prices.shift(1))
-
-    # Removes any row where at least one asset is missing.
-    log_rets = log_rets.dropna(axis=0)
+    log_rets = np.log(prices / prices.shift(1)).dropna(axis=0)
 
     # Estimate parameters w/t Daily → annual via: μ_annual  = 252 × mean_daily & Σ_annual  = 252 × cov_daily
     mu_annual = log_rets.mean().values * TRADING_DAYS
@@ -78,7 +80,8 @@ def monte_carlo_multivariate_paths(
     cov: np.ndarray,
     days: int = 252,
     sims: int = 10_000,
-    seed: int = 42) -> np.ndarray:
+    seed: int = 42
+) -> np.ndarray:
     """
     Simulate correlated GBM paths for multiple assets.
 
@@ -113,7 +116,8 @@ def monte_carlo_multivariate_paths(
 
     return np.exp(log_paths)
 
-#  ----------------- 5) Portfolio Path Configuration  ---------------------------------------
+
+#  ----------------- 5) Portfolio Aggregation  ---------------------------------------
 
 def portfolio_paths(
     asset_paths: np.ndarray,
@@ -130,38 +134,72 @@ def portfolio_paths(
     return asset_paths @ weights
 
 
-#  ----------------- 6) Plotting utilities  ---------------------------------------
+#  ----------------- 6) Portfolio Optimisation Strategies  ---------------------------------------
+
+def equal_weight(n_assets: int) -> np.ndarray:
+    return np.ones(n_assets) / n_assets
+
+
+def min_variance_weights(cov: np.ndarray) -> np.ndarray:
+    inv_cov = np.linalg.inv(cov)
+    w = inv_cov @ np.ones(len(cov))
+    return w / w.sum()
+
+
+def max_sharpe_weights(mu: np.ndarray, cov: np.ndarray) -> np.ndarray:
+    inv_cov = np.linalg.inv(cov)
+    w = inv_cov @ mu
+    return w / w.sum()
+
+
+def risk_parity_weights(cov: np.ndarray) -> np.ndarray:
+    vol = np.sqrt(np.diag(cov))
+    inv_vol = 1 / vol
+    return inv_vol / inv_vol.sum()
+
+#  ----------------- 7) Risk Metrics  ---------------------------------------
+
+def var_cvar(returns: np.ndarray, alpha: float = 0.05):
+    var = np.percentile(returns, alpha * 100)
+    cvar = returns[returns <= var].mean()
+    return var, cvar
+
+
+def max_drawdown(path: np.ndarray) -> float:
+    peak = np.maximum.accumulate(path)
+    drawdown = (path - peak) / peak
+    return drawdown.min()
+
+
+#  ----------------- 8) Diagnostics & Plots  ---------------------------------------
 def plot_portfolio_paths(
-    portfolio_paths: np.ndarray,
-    out_file: str = "portfolio_paths.png",
+    paths: np.ndarray,
+    title: str,
+    filename: str,
     n_sample_paths: int = 100
 ):
-    days_plus_one, sims = portfolio_paths.shape
-    n = min(n_sample_paths, sims)
-
     plt.figure(figsize=(8, 5))
-    plt.plot(portfolio_paths[:, :n], alpha=0.7, linewidth=0.8)
-    plt.xlabel("Days into future")
-    plt.ylabel("Portfolio value")
-    plt.title("Monte Carlo Portfolio Simulation")
+    plt.plot(paths[:, :n_sample_paths], alpha=0.6)
+    plt.title(title)
+    plt.xlabel("Days")
+    plt.ylabel("Portfolio Value")
     plt.tight_layout()
-    plt.savefig(out_file, dpi=150)
+    plt.savefig(filename, dpi=150)
     plt.close()
 
 
 def plot_final_distribution(
-    portfolio_paths: np.ndarray,
-    out_file: str = "portfolio_final_distribution.png"
+    paths: np.ndarray,
+    title: str,
+    filename: str
 ):
-    final_vals = portfolio_paths[-1]
-
     plt.figure(figsize=(8, 5))
-    plt.hist(final_vals, bins=60)
-    plt.xlabel("Final portfolio value")
+    plt.hist(paths[-1], bins=60)
+    plt.title(title)
+    plt.xlabel("Final Value")
     plt.ylabel("Frequency")
-    plt.title("Distribution of Portfolio Value at Horizon")
     plt.tight_layout()
-    plt.savefig(out_file, dpi=150)
+    plt.savefig(filename, dpi=150)
     plt.close()
 
 
@@ -182,87 +220,62 @@ def summarise_simulation(portfolio_paths: np.ndarray) -> dict:
     }
 
 
-#  ----------------- 8) Portfolio Optimisation Strategies  ---------------------------------------
+#  ----------------- 8) Simulation Summary  ---------------------------------------
 
-def min_variance_weights(cov: np.ndarray) -> np.ndarray:
-    inv_cov = np.linalg.inv(cov)
-    w = inv_cov @ np.ones(len(cov))
-    return w / w.sum()
+def summarise(paths: np.ndarray) -> Dict[str, float]:
+    final_vals = paths[-1]
+    returns = final_vals / paths[0] - 1
 
+    var, cvar = var_cvar(returns)
 
-def max_sharpe_weights(mu: np.ndarray, cov: np.ndarray) -> np.ndarray:
-    inv_cov = np.linalg.inv(cov)
-    w = inv_cov @ mu
-    return w / w.sum()
-
-
-def risk_parity_weights(cov: np.ndarray) -> np.ndarray:
-    vol = np.sqrt(np.diag(cov))
-    inv_vol = 1 / vol
-    return inv_vol / inv_vol.sum()
+    return {
+        "mean_final": final_vals.mean(),
+        "median_final": np.median(final_vals),
+        "VaR_5%": var,
+        "CVaR_5%": cvar,
+        "max_drawdown": max_drawdown(final_vals)
+    }
 
 
 #  ----------------- 9) Main Driver  ---------------------------------------
 
 def main():
 
-    """
-        PIPELINE OVERVIEW:
-        ------------------
-        1. Load aligned price matrix (P ∈ ℝ^(T×N))
-        2. Compute log-return matrix (R ∈ ℝ^(T-1×N))
-        3. Estimate μ and Σ
-        4. (Next step) Feed μ, Σ into correlated Monte Carlo
-        """
-
-    # Asset Universe
     tickers = ["AAPL", "MSFT", "GOOG", "SPY"]
-    start = "2020-01-01"
-    end = "2025-01-01"
-    days = 252
-    sims = 10_000
+    prices = get_price_matrix(tickers)
 
-    print(f"\nDownloading data for {tickers}...")
-    prices = get_price_matrix(tickers, start, end)
-
+    mu, cov, _ = estimate_gbm_params(prices)
     S0 = prices.iloc[-1].values
-    print("Initial prices:", dict(zip(tickers, S0.round(2))))
 
-    #  Parameter Estimation
-    mu, cov, log_rets = estimate_gbm_params(prices)
+    asset_paths = monte_carlo_multivariate_paths(S0, mu, cov)
 
-    print("\nAnnualised expected returns:")
-    for t, m in zip(tickers, mu):
-        print(f"{t}: {m:.2%}")
+    strategies = {
+        "Equal Weight": equal_weight(len(tickers)),
+        "Min Variance": min_variance_weights(cov),
+        "Max Sharpe": max_sharpe_weights(mu, cov),
+        "Risk Parity": risk_parity_weights(cov)
+    }
 
-    print("\nSimulating correlated GBM paths...")
-    asset_paths = monte_carlo_multivariate_paths(
-        S0, mu, cov, days=days, sims=sims
-    )
+    for name, w in strategies.items():
+        port_paths = portfolio_paths(asset_paths, w)
 
-    # Equal-weight portfolio
-    weights = np.ones(len(tickers)) / len(tickers)
-    portfolio = portfolio_paths(asset_paths, weights)
+        stats = summarise(port_paths)
 
-    stats = summarise_simulation(portfolio)
+        print(f"\n=== {name} ===")
+        for k, v in stats.items():
+            print(f"{k:15s}: {v:.4f}")
 
-    print("\n== Portfolio simulation summary ==")
-    for k, v in stats.items():
-        print(f"{k:12s}: {v:.2f}")
+        plot_portfolio_paths(
+            port_paths,
+            f"{name} – Monte Carlo Paths",
+            f"{name.lower().replace(' ', '_')}_paths.png"
+        )
 
-    # Risk-style metrics
-    prob_loss_10 = (portfolio[-1] < 0.9 * portfolio[0]).mean()
-    prob_gain_10 = (portfolio[-1] > 1.1 * portfolio[0]).mean()
-
-    print(f"\nProbability of >10% loss: {prob_loss_10:.1%}")
-    print(f"Probability of >10% gain: {prob_gain_10:.1%}")
-
-    plot_portfolio_paths(portfolio)
-    plot_final_distribution(portfolio)
-
-    print("\nSaved plots:")
-    print("- portfolio_paths.png")
-    print("- portfolio_final_distribution.png")
+        plot_final_distribution(
+            port_paths,
+            f"{name} – Final Distribution",
+            f"{name.lower().replace(' ', '_')}_distribution.png"
+        )
 
     # OPTIONAL DIAGNOSTIC
     # plot_log_returns(log_rets)
