@@ -142,13 +142,17 @@ def equal_weight(n_assets: int) -> np.ndarray:
 
 def min_variance_weights(cov: np.ndarray) -> np.ndarray:
     inv_cov = np.linalg.inv(cov)
-    w = inv_cov @ np.ones(len(cov))
+    w = inv_cov @ np.ones(len(cov)) # One asset dominates → huge leverage → terrible drawdowns due to unconstrained optimisation.
     return w / w.sum()
 
 
 def max_sharpe_weights(mu: np.ndarray, cov: np.ndarray) -> np.ndarray:
+    """
+    Long-only, no-leverage constrained Max Sharpe.
+    """
     inv_cov = np.linalg.inv(cov)
     w = inv_cov @ mu
+    w = np.clip(w, 0, None)  # Long-only constraint
     return w / w.sum()
 
 
@@ -156,6 +160,7 @@ def risk_parity_weights(cov: np.ndarray) -> np.ndarray:
     vol = np.sqrt(np.diag(cov))
     inv_vol = 1 / vol
     return inv_vol / inv_vol.sum()
+
 
 #  ----------------- 7) Risk Metrics  ---------------------------------------
 
@@ -165,10 +170,17 @@ def var_cvar(returns: np.ndarray, alpha: float = 0.05):
     return var, cvar
 
 
-def max_drawdown(path: np.ndarray) -> float:
-    peak = np.maximum.accumulate(path)
-    drawdown = (path - peak) / peak
-    return drawdown.min()
+def max_drawdown_paths(paths: np.ndarray) -> float:
+    """
+    Compute mean maximum drawdown across Monte Carlo paths.
+    """
+    drawdowns = []
+    for i in range(paths.shape[1]):
+        p = paths[:, i]
+        peak = np.maximum.accumulate(p)
+        dd = (p - peak) / peak
+        drawdowns.append(dd.min())
+    return float(np.mean(drawdowns))
 
 
 #  ----------------- 8) Diagnostics & Plots  ---------------------------------------
@@ -223,62 +235,68 @@ def summarise_simulation(portfolio_paths: np.ndarray) -> dict:
 #  ----------------- 8) Simulation Summary  ---------------------------------------
 
 def summarise(paths: np.ndarray) -> Dict[str, float]:
+    """
+    Summarise Monte Carlo portfolio paths with
+    distribution-based and path-dependent risk metrics.
+    """
     final_vals = paths[-1]
     returns = final_vals / paths[0] - 1
 
     var, cvar = var_cvar(returns)
+    mdd = max_drawdown_paths(paths)
 
     return {
-        "mean_final": final_vals.mean(),
-        "median_final": np.median(final_vals),
-        "VaR_5%": var,
-        "CVaR_5%": cvar,
-        "max_drawdown": max_drawdown(final_vals)
+        "mean_final": float(final_vals.mean()),
+        "median_final": float(np.median(final_vals)),
+        "VaR_5%": float(var),
+        "CVaR_5%": float(cvar),
+        "max_drawdown": float(mdd)
     }
 
 
 #  ----------------- 9) Main Driver  ---------------------------------------
 
+# =========================================
+# 7) MAIN DRIVER
+# =========================================
+
 def main():
 
     tickers = ["AAPL", "MSFT", "GOOG", "SPY"]
-    prices = get_price_matrix(tickers)
+    start, end = "2020-01-01", "2025-01-01"
+    days, sims = 252, 10_000
 
-    mu, cov, _ = estimate_gbm_params(prices)
+    prices = get_price_matrix(tickers, start, end)
     S0 = prices.iloc[-1].values
 
-    asset_paths = monte_carlo_multivariate_paths(S0, mu, cov)
+    mu, cov, _ = estimate_gbm_params(prices)
+
+    asset_paths = monte_carlo_multivariate_paths(
+        S0, mu, cov, days=days, sims=sims
+    )
 
     strategies = {
         "Equal Weight": equal_weight(len(tickers)),
         "Min Variance": min_variance_weights(cov),
         "Max Sharpe": max_sharpe_weights(mu, cov),
-        "Risk Parity": risk_parity_weights(cov)
+        "Risk Parity": risk_parity_weights(cov),
     }
 
     for name, w in strategies.items():
         port_paths = portfolio_paths(asset_paths, w)
 
-        stats = summarise(port_paths)
+        final_vals = port_paths[-1]
+        rets = final_vals / port_paths[0] - 1
+
+        var, cvar = var_cvar(rets)
+        mdd = max_drawdown_paths(port_paths)
 
         print(f"\n=== {name} ===")
-        for k, v in stats.items():
-            print(f"{k:15s}: {v:.4f}")
-
-        plot_portfolio_paths(
-            port_paths,
-            f"{name} – Monte Carlo Paths",
-            f"{name.lower().replace(' ', '_')}_paths.png"
-        )
-
-        plot_final_distribution(
-            port_paths,
-            f"{name} – Final Distribution",
-            f"{name.lower().replace(' ', '_')}_distribution.png"
-        )
-
-    # OPTIONAL DIAGNOSTIC
-    # plot_log_returns(log_rets)
+        print(f"mean_final     : {final_vals.mean():.4f}")
+        print(f"median_final   : {np.median(final_vals):.4f}")
+        print(f"VaR_5%         : {var:.4f}")
+        print(f"CVaR_5%        : {cvar:.4f}")
+        print(f"max_drawdown   : {mdd:.4f}")
 
 
 if __name__ == "__main__":
