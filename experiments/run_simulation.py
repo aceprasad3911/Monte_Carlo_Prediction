@@ -70,15 +70,13 @@ def main():
             filename=os.path.join(figures_dir, f"{name}_distribution.png")
         )
 
-    # --------  Rolling Backtest (Max Sharpe as example)  --------
+    # --------  Rolling Backtest (Max Sharpe)  --------
     backtest_results = backtest_with_plots(
         prices=prices,
         window=252,
         horizon=21,
         n_sims=3_000,
         weight_fn=max_sharpe_weights,
-        performance_file="figures/backtest_performance.png",
-        var_file="figures/var_breaches.png"
     )
 
     # Backtest Summary

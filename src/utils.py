@@ -1,12 +1,14 @@
 # /Users/ayushmaanprasad/Desktop/GitRepo/Monte_Carlo_Prediction/src/utils.py
 
 
-import os
+from pathlib import Path
 
-def get_project_root() -> str:
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-def get_figures_dir() -> str:
-    figures_dir = os.path.join(get_project_root(), "figures")
-    os.makedirs(figures_dir, exist_ok=True)
+def get_figures_dir() -> Path:
+    """
+    Single source of truth for all experiment figures.
+    """
+    project_root = Path(__file__).resolve().parents[1]
+    figures_dir = project_root / "experiments" / "simulation_experiment_run"
+    figures_dir.mkdir(parents=True, exist_ok=True)
     return figures_dir

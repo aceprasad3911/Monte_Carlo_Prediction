@@ -1,9 +1,27 @@
 # src/plots.py
-import os
+
+
+
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
+
+from .utils import get_figures_dir
+
+
+def _resolve_path(filename: Optional[Union[str, Path]]) -> Optional[Path]:
+    if filename is None:
+        return None
+
+    path = Path(filename)
+
+    if not path.is_absolute() and path.parent == Path("."):
+        path = get_figures_dir() / path
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 # ----------------- 1) Monte Carlo Path Diagnostics -----------------
@@ -11,7 +29,7 @@ from typing import Optional
 def plot_portfolio_paths(
     paths: np.ndarray,
     title: str,
-    filename: Optional[str] = None,
+    filename: Optional[Union[str, Path]] = None,
     n_sample_paths: int = 100
 ):
     plt.figure(figsize=(9, 5))
@@ -21,12 +39,10 @@ def plot_portfolio_paths(
     plt.ylabel("Portfolio Value")
     plt.grid(alpha=0.3)
 
-    if filename:
-        dirpath = os.path.dirname(filename)
-        if dirpath:
-            os.makedirs(dirpath, exist_ok=True)
-        plt.savefig(filename, dpi=150, bbox_inches="tight")
-        plt.close()
+    path = _resolve_path(filename)
+    if path:
+        plt.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close()
 
 
 # ----------------- 2) Terminal Distribution -----------------
@@ -34,7 +50,7 @@ def plot_portfolio_paths(
 def plot_final_distribution(
     paths: np.ndarray,
     title: str,
-    filename: Optional[str] = None,
+    filename: Optional[Union[str, Path]] = None,
     bins: int = 60
 ):
     plt.figure(figsize=(8, 5))
@@ -44,12 +60,10 @@ def plot_final_distribution(
     plt.ylabel("Frequency")
     plt.grid(alpha=0.3)
 
-    if filename:
-        dirpath = os.path.dirname(filename)
-        if dirpath:
-            os.makedirs(dirpath, exist_ok=True)
-        plt.savefig(filename, dpi=150, bbox_inches="tight")
-        plt.close()
+    path = _resolve_path(filename)
+    if path:
+        plt.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close()
 
 
 # ----------------- 3) Rolling Backtest Diagnostics -----------------
@@ -57,7 +71,7 @@ def plot_final_distribution(
 def plot_backtest_performance(
     results: pd.DataFrame,
     title: str,
-    filename: Optional[str] = None
+    filename: Optional[Union[str, Path]] = None
 ):
     plt.figure(figsize=(10, 5))
 
@@ -82,12 +96,10 @@ def plot_backtest_performance(
     plt.legend()
     plt.grid(alpha=0.3)
 
-    if filename:
-        dirpath = os.path.dirname(filename)
-        if dirpath:
-            os.makedirs(dirpath, exist_ok=True)
-        plt.savefig(filename, dpi=150, bbox_inches="tight")
-        plt.close()
+    path = _resolve_path(filename)
+    if path:
+        plt.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close()
 
 
 # ----------------- 4) VaR Hit Rate Diagnostic -----------------
@@ -95,7 +107,7 @@ def plot_backtest_performance(
 def plot_var_hits(
     results: pd.DataFrame,
     title: str,
-    filename: Optional[str] = None
+    filename: Optional[Union[str, Path]] = None
 ):
     breaches = results[~results["hit_VaR"]]
 
@@ -115,9 +127,7 @@ def plot_var_hits(
     plt.legend()
     plt.grid(alpha=0.3)
 
-    if filename:
-        dirpath = os.path.dirname(filename)
-        if dirpath:
-            os.makedirs(dirpath, exist_ok=True)
-        plt.savefig(filename, dpi=150, bbox_inches="tight")
-        plt.close()
+    path = _resolve_path(filename)
+    if path:
+        plt.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close()
