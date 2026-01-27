@@ -7,7 +7,12 @@ from pathlib import Path
 
 from .gbm import monte_carlo_multivariate_paths
 from .portfolio import portfolio_paths
-from .risk import var_cvar
+from .risk import (
+    var_cvar,
+    kupiec_pof_test,
+    christoffersen_independence_test,
+    basel_traffic_light
+)
 from .config import TRADING_DAYS
 from .plots import plot_backtest_performance, plot_var_hits
 from .utils import get_figures_dir
@@ -115,5 +120,31 @@ def backtest_with_plots(
         filename=var_path
     )
 
-    return results
+    # ----------------- VaR Backtest Statistics -----------------
 
+    hits = results["hit_VaR"].values
+    T = len(hits)
+
+    kupiec = kupiec_pof_test(hits)
+    christoffersen = christoffersen_independence_test(hits)
+    basel = basel_traffic_light(kupiec["breaches"], T)
+
+    stats = {
+        "Kupiec_LR": kupiec["LR_pof"],
+        "Kupiec_p_value": kupiec["p_value"],
+        "Christoffersen_LR": christoffersen["LR_ind"],
+        "Christoffersen_p_value": christoffersen["p_value"],
+        "VaR_breaches": kupiec["breaches"],
+        "Expected_breaches": kupiec["expected"],
+        "Basel_zone": basel
+    }
+
+    print("\n=== VaR Backtest Statistics ===")
+    for k, v in stats.items():
+        print(f"{k:25s}: {v}")
+
+    stats_df = pd.DataFrame([stats])
+    stats_path = figures_dir / "var_backtest_statistics.csv"
+    stats_df.to_csv(stats_path, index=False)
+
+    return results
