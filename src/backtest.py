@@ -7,12 +7,7 @@ from pathlib import Path
 
 from .gbm import monte_carlo_multivariate_paths
 from .portfolio import portfolio_paths
-from .risk import (
-    var_cvar,
-    kupiec_pof_test,
-    christoffersen_independence_test,
-    basel_traffic_light
-)
+from .risk import var_cvar, var_backtest
 from .config import TRADING_DAYS
 from .plots import plot_backtest_performance, plot_var_hits
 from .utils import get_figures_dir
@@ -81,12 +76,14 @@ def backtest_with_plots(
     horizon: int,
     n_sims: int,
     weight_fn: Callable,
+    alpha: float = 0.05,
+    model_name: str = "gbm",
     performance_file: str | None = None,
-    var_file: str | None = None
+    var_file: str | None = None,
+    stats_file: str | None = None
 ) -> pd.DataFrame:
     """
-    Run rolling backtest and save diagnostic plots
-    into experiments/simulation_experiment_run/
+    Run rolling backtest + VaR statistical validation.
     """
 
     results = rolling_backtest(
@@ -97,54 +94,36 @@ def backtest_with_plots(
         weight_fn=weight_fn
     )
 
-    # ✅ single source of truth
     figures_dir: Path = get_figures_dir()
 
-    performance_path = figures_dir / (
-        performance_file or "backtest_performance.png"
-    )
-
-    var_path = figures_dir / (
-        var_file or "var_breaches.png"
-    )
+    # ------------------ Plots ------------------
 
     plot_backtest_performance(
         results,
         title="Rolling Backtest: Realised Return vs Forecast VaR",
-        filename=performance_path
+        filename=figures_dir / (performance_file or f"backtest_performance_{model_name}.png")
     )
 
     plot_var_hits(
         results,
         title="VaR Breaches Over Time",
-        filename=var_path
+        filename=figures_dir / (var_file or f"var_breaches_{model_name}.png")
     )
 
-    # ----------------- VaR Backtest Statistics -----------------
+    # ------------------ VaR Backtest Statistics ------------------
 
-    hits = results["hit_VaR"].values
-    T = len(hits)
+    stats_df = var_backtest(
+        realized_returns=results["realised_return"],
+        var_series=results["forecast_VaR"],
+        alpha=alpha
+    )
 
-    kupiec = kupiec_pof_test(hits)
-    christoffersen = christoffersen_independence_test(hits)
-    basel = basel_traffic_light(kupiec["breaches"], T)
-
-    stats = {
-        "Kupiec_LR": kupiec["LR_pof"],
-        "Kupiec_p_value": kupiec["p_value"],
-        "Christoffersen_LR": christoffersen["LR_ind"],
-        "Christoffersen_p_value": christoffersen["p_value"],
-        "VaR_breaches": kupiec["breaches"],
-        "Expected_breaches": kupiec["expected"],
-        "Basel_zone": basel
-    }
-
-    print("\n=== VaR Backtest Statistics ===")
-    for k, v in stats.items():
-        print(f"{k:25s}: {v}")
-
-    stats_df = pd.DataFrame([stats])
-    stats_path = figures_dir / "var_backtest_statistics.csv"
+    stats_path = figures_dir / (stats_file or f"var_stats_{model_name}.csv")
     stats_df.to_csv(stats_path, index=False)
+
+    # Console output (variable: value format)
+    print(f"\n=== VaR Backtest Statistics ({model_name.upper()}) ===")
+    for col in stats_df.columns:
+        print(f"{col:20s}: {stats_df.iloc[0][col]}")
 
     return results

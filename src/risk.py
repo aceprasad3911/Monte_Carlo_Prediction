@@ -1,9 +1,10 @@
 #  /Users/ayushmaanprasad/Desktop/GitRepo/Monte_Carlo_Prediction/src/risk.py
 
 import numpy as np
+from typing import Dict
+
 import pandas as pd
 from scipy.stats import chi2
-from typing import Dict
 
 
 def var_cvar(returns: np.ndarray, alpha: float = 0.05):
@@ -40,101 +41,118 @@ def summarise(paths: np.ndarray) -> Dict[str, float]:
     }
 
 
-def kupiec_pof_test(
-    hits: np.ndarray,
-    alpha: float = 0.05
-) -> Dict[str, float]:
+def kupiec_pof_test(breaches: np.ndarray, alpha: float):
     """
-    Kupiec (1995) Proportion of Failures test.
-
-    hits: Boolean array where True = no breach, False = VaR breach
+    Kupiec Proportion of Failures test (unconditional coverage).
     """
-    T = len(hits)
-    x = np.sum(~hits)  # number of VaR breaches
+    T = len(breaches)
+    x = breaches.sum()
+    pi_hat = x / T
 
-    if x == 0:
+    if x == 0 or x == T:
         return {
-            "LR_pof": 0.0,
-            "p_value": 1.0,
-            "breaches": 0,
-            "expected": alpha * T
+            "test": "Kupiec",
+            "LR_stat": np.nan,
+            "p_value": 0.0,
+            "reject": True
         }
 
-    p_hat = x / T
-
-    LR_pof = -2 * (
-        (T - x) * np.log((1 - alpha) / (1 - p_hat))
-        + x * np.log(alpha / p_hat)
+    LR = -2 * (
+        (T - x) * np.log((1 - alpha) / (1 - pi_hat))
+        + x * np.log(alpha / pi_hat)
     )
 
-    p_value = 1 - chi2.cdf(LR_pof, df=1)
+    p_value = 1 - chi2.cdf(LR, df=1)
 
     return {
-        "LR_pof": float(LR_pof),
-        "p_value": float(p_value),
-        "breaches": int(x),
-        "expected": float(alpha * T)
+        "test": "Kupiec",
+        "LR_stat": LR,
+        "p_value": p_value,
+        "reject": p_value < 0.05
     }
 
 
-def christoffersen_independence_test(
-    hits: np.ndarray
-) -> Dict[str, float]:
+# Christoffersen Independence Test
+
+def christoffersen_independence_test(breaches: np.ndarray):
     """
-    Christoffersen (1998) independence test.
+    Tests whether VaR breaches are independent.
     """
-    hits = (~hits).astype(int)  # 1 = breach
+    b = breaches.astype(int)
 
-    n00 = n01 = n10 = n11 = 0
+    n00 = np.sum((b[:-1] == 0) & (b[1:] == 0))
+    n01 = np.sum((b[:-1] == 0) & (b[1:] == 1))
+    n10 = np.sum((b[:-1] == 1) & (b[1:] == 0))
+    n11 = np.sum((b[:-1] == 1) & (b[1:] == 1))
 
-    for t in range(1, len(hits)):
-        if hits[t-1] == 0 and hits[t] == 0:
-            n00 += 1
-        elif hits[t-1] == 0 and hits[t] == 1:
-            n01 += 1
-        elif hits[t-1] == 1 and hits[t] == 0:
-            n10 += 1
-        else:
-            n11 += 1
-
-    pi0 = n01 / (n00 + n01) if (n00 + n01) > 0 else 0
-    pi1 = n11 / (n10 + n11) if (n10 + n11) > 0 else 0
+    pi01 = n01 / (n00 + n01) if (n00 + n01) > 0 else 0
+    pi11 = n11 / (n10 + n11) if (n10 + n11) > 0 else 0
     pi = (n01 + n11) / (n00 + n01 + n10 + n11)
 
     def safe_log(x):
-        return np.log(x) if x > 0 else 0
+        return np.log(x) if x > 0 else 0.0
 
-    L_ind = (
-        n00 * safe_log(1 - pi0) +
-        n01 * safe_log(pi0) +
-        n10 * safe_log(1 - pi1) +
-        n11 * safe_log(pi1)
+    L0 = (
+        (n00 + n10) * safe_log(1 - pi)
+        + (n01 + n11) * safe_log(pi)
     )
 
-    L_uncond = (
-        (n00 + n10) * safe_log(1 - pi) +
-        (n01 + n11) * safe_log(pi)
+    L1 = (
+        n00 * safe_log(1 - pi01)
+        + n01 * safe_log(pi01)
+        + n10 * safe_log(1 - pi11)
+        + n11 * safe_log(pi11)
     )
 
-    LR_ind = -2 * (L_uncond - L_ind)
-    p_value = 1 - chi2.cdf(LR_ind, df=1)
+    LR = -2 * (L0 - L1)
+    p_value = 1 - chi2.cdf(LR, df=1)
 
     return {
-        "LR_ind": float(LR_ind),
-        "p_value": float(p_value)
+        "test": "Christoffersen",
+        "LR_stat": LR,
+        "p_value": p_value,
+        "reject": p_value < 0.05
     }
 
 
-def basel_traffic_light(
-    breaches: int,
-    T: int
-) -> str:
+# Basel Traffic Light
+
+def basel_traffic_light(num_breaches: int, T: int, alpha: float):
     """
-    Basel traffic light classification (for 5% VaR, ~250 obs).
+    Basel traffic light classification.
     """
-    if breaches <= 4:
+    expected = T * alpha
+
+    if num_breaches <= expected * 1.5:
         return "Green"
-    elif breaches <= 9:
+    elif num_breaches <= expected * 2.5:
         return "Yellow"
     else:
         return "Red"
+
+def var_backtest(realized_returns, var_series, alpha=0.05):
+    """
+    Runs full VaR backtest suite.
+    """
+    breaches = (realized_returns < var_series).astype(int).values
+    T = len(breaches)
+
+    kupiec = kupiec_pof_test(breaches, alpha)
+    christ = christoffersen_independence_test(breaches)
+    traffic = basel_traffic_light(breaches.sum(), T, alpha)
+
+    results = {
+        "alpha": alpha,
+        "n_obs": T,
+        "n_breaches": breaches.sum(),
+        "breach_rate": breaches.mean(),
+        "kupiec_LR": kupiec["LR_stat"],
+        "kupiec_p": kupiec["p_value"],
+        "kupiec_reject": kupiec["reject"],
+        "christ_LR": christ["LR_stat"],
+        "christ_p": christ["p_value"],
+        "christ_reject": christ["reject"],
+        "basel_zone": traffic
+    }
+
+    return pd.DataFrame([results])
