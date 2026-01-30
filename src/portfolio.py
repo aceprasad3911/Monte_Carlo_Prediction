@@ -1,16 +1,35 @@
-#  /Users/ayushmaanprasad/Desktop/GitRepo/Monte_Carlo_Prediction/src/portfolio.py
+# src/portfolio.py
+
+
 import numpy as np
 
 
-def portfolio_paths(asset_paths: np.ndarray, weights: np.ndarray) -> np.ndarray:
+def portfolio_paths(
+    asset_paths: np.ndarray,
+    weights: np.ndarray
+) -> np.ndarray:
     """
-    Aggregate asset paths into portfolio paths.
+    Aggregate asset-level paths into portfolio paths.
+
+    Parameters
+    ----------
+    asset_paths : np.ndarray
+        Shape (T, sims, N)
+    weights : np.ndarray
+        Shape (N,)
+
+    Returns
+    -------
+    np.ndarray
+        Portfolio paths with shape (T, sims)
     """
     return asset_paths @ weights
 
 
-def equal_weight(n: int) -> np.ndarray:
-    return np.ones(n) / n
+# ---------------- Portfolio Construction Rules ---------------- #
+
+def equal_weight(n_assets: int) -> np.ndarray:
+    return np.ones(n_assets) / n_assets
 
 
 def min_variance_weights(cov: np.ndarray) -> np.ndarray:
@@ -21,7 +40,7 @@ def min_variance_weights(cov: np.ndarray) -> np.ndarray:
 
 def max_sharpe_weights(mu: np.ndarray, cov: np.ndarray) -> np.ndarray:
     """
-    Long-only, no-leverage constrained Max Sharpe.
+    Long-only, fully-invested max Sharpe portfolio.
     """
     inv_cov = np.linalg.inv(cov)
     w = inv_cov @ mu

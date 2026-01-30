@@ -1,4 +1,5 @@
-#  /Users/ayushmaanprasad/Desktop/GitRepo/Monte_Carlo_Prediction/src/risk.py
+#  src/risk.py
+
 
 import numpy as np
 from typing import Dict
@@ -130,11 +131,16 @@ def basel_traffic_light(num_breaches: int, T: int, alpha: float):
     else:
         return "Red"
 
+
 def var_backtest(realized_returns, var_series, alpha=0.05):
     """
     Runs full VaR backtest suite.
+    Robust to numpy arrays and pandas Series.
     """
-    breaches = (realized_returns < var_series).astype(int).values
+    realized_returns = np.asarray(realized_returns, dtype=float)
+    var_series = np.asarray(var_series, dtype=float)
+
+    breaches = (realized_returns < var_series).astype(int)
     T = len(breaches)
 
     kupiec = kupiec_pof_test(breaches, alpha)
@@ -144,7 +150,7 @@ def var_backtest(realized_returns, var_series, alpha=0.05):
     results = {
         "alpha": alpha,
         "n_obs": T,
-        "n_breaches": breaches.sum(),
+        "n_breaches": int(breaches.sum()),
         "breach_rate": breaches.mean(),
         "kupiec_LR": kupiec["LR_stat"],
         "kupiec_p": kupiec["p_value"],

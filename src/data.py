@@ -1,4 +1,4 @@
-#  /Users/ayushmaanprasad/Desktop/GitRepo/Monte_Carlo_Prediction/src/data.py
+# src/data.py
 
 
 import yfinance as yf
@@ -6,16 +6,18 @@ import pandas as pd
 from typing import List
 
 
-# single-asset models represented as vector, portfolios represented as matrix P ∈ ℝ^(T × N)
 def get_price_matrix(
     tickers: List[str],
     start: str,
     end: str
 ) -> pd.DataFrame:
-
     """
-    Download adjusted close prices for a multiple tickers.
-    Returns a DataFrame indexed by date with one column per asset.
+    Download adjusted close prices for multiple assets.
+
+    Returns
+    -------
+    pd.DataFrame
+        Price matrix with shape (T, N)
     """
 
     if len(tickers) < 2:
@@ -25,14 +27,19 @@ def get_price_matrix(
         tickers,
         start=start,
         end=end,
-        auto_adjust=True,   # Adjusts for splits & dividends
+        auto_adjust=True,
         progress=False
-    )["Close"]
+    )
 
-    if data.empty:
+    if "Close" not in data:
+        raise ValueError("No 'Close' prices returned.")
+
+    prices = data["Close"]
+
+    if prices.empty:
         raise ValueError("No price data returned.")
 
-    # At this point:
-    #   type(data) == pd.DataFrame
-    #   data.shape == (T, N)
-    return data.dropna(how="all")  # Drop rows where all assets are missing
+    # Drop rows where all assets are missing
+    prices = prices.dropna(how="all")
+
+    return prices

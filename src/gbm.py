@@ -1,10 +1,10 @@
-#  /Users/ayushmaanprasad/Desktop/GitRepo/Monte_Carlo_Prediction/src/gbm.py
-
+# src/gbm.py
 
 import numpy as np
 import pandas as pd
 from typing import Tuple
 from .config import TRADING_DAYS, DT
+
 
 def estimate_gbm_params(
     prices: pd.DataFrame

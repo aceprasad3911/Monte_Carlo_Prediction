@@ -1,0 +1,2 @@
+alpha,n_obs,n_breaches,breach_rate,kupiec_LR,kupiec_p,kupiec_reject,christ_LR,christ_p,christ_reject,basel_zone
+0.05,985,70,0.07106598984771574,8.185587258875366,0.004222450731040661,True,228.73533682601897,0.0,True,Green
